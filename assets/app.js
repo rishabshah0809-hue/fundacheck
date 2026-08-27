@@ -446,17 +446,24 @@ function lineChart(seriesList, options = {}) {
     return `<line class="chart-grid-line" x1="${pad.left}" x2="${width - pad.right}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/><text class="chart-axis-value" x="${pad.left - 9}" y="${(yy + 4).toFixed(1)}" text-anchor="end">${number(tick, kind === "percent" ? 0 : 0)}${kind === "percent" ? "%" : ""}</text>`;
   }).join("");
   const xLabels = years.map((year, index) => `<text class="chart-axis-value" x="${x(index).toFixed(1)}" y="${height - 11}" text-anchor="middle">${escapeHTML(year)}</text>`).join("");
+  const hitAreas = [];
   const lines = usable.map((item, seriesIndex) => {
-    const points = item.values.map((value, index) => value === null || Number.isNaN(value) ? null : [x(index), y(value)]).filter(Boolean);
+    const points = item.values
+      .map((value, index) => (value === null || Number.isNaN(value)) ? null : [x(index), y(value), index, value])
+      .filter(Boolean);
     if (!points.length) return "";
     const path = points.map(([px, py], index) => `${index ? "L" : "M"}${px.toFixed(1)} ${py.toFixed(1)}`).join(" ");
     const area = seriesIndex === 0 && points.length > 1
       ? `<path class="chart-area" d="${path} L ${points[points.length - 1][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} L ${points[0][0].toFixed(1)} ${(height - pad.bottom).toFixed(1)} Z"/>`
       : "";
-    const dots = points.map(([px, py], pointIndex) => {
-      const rawValue = item.values.find((value, index) => value !== null && !Number.isNaN(value) && x(index) === px);
+    const seriesName = item.name || "";
+    const dots = points.map(([px, py, index, rawValue], pointIndex) => {
+      const valueText = chartValue(rawValue, kind);
+      const yearText = years[index] != null ? String(years[index]) : "";
+      // Invisible, larger hit-area drives the hover tooltip; <title> is a native fallback.
+      hitAreas.push(`<circle class="chart-hit" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="18" data-year="${escapeHTML(yearText)}" data-value="${escapeHTML(valueText)}" data-series="${escapeHTML(seriesName)}"><title>${escapeHTML(yearText)}${valueText ? ` · ${escapeHTML(valueText)}` : ""}</title></circle>`);
       const label = pointIndex === points.length - 1 || years.length <= 5
-        ? `<text class="chart-value-label" x="${px.toFixed(1)}" y="${(py - 10).toFixed(1)}" text-anchor="middle">${escapeHTML(chartValue(rawValue, kind))}</text>`
+        ? `<text class="chart-value-label" x="${px.toFixed(1)}" y="${(py - 10).toFixed(1)}" text-anchor="middle">${escapeHTML(valueText)}</text>`
         : "";
       return `<circle class="chart-point ${seriesIndex ? "secondary" : ""}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4"/>${label}`;
     }).join("");
@@ -464,7 +471,7 @@ function lineChart(seriesList, options = {}) {
   }).join("");
   return `<svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(options.label || "Financial trend chart")}">
     <defs><linearGradient id="chart-area-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9903a" stop-opacity="0.3"/><stop offset="100%" stop-color="#c9903a" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<line class="chart-axis-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/>${lines}${xLabels}</svg>`;
+    ${grid}<line class="chart-axis-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/>${lines}${xLabels}${hitAreas.join("")}</svg>`;
 }
 
 function renderChartCard(title, subtitle, chart, legend) {
@@ -1021,6 +1028,79 @@ document.addEventListener("drop", (event) => {
   const form = new FormData();
   form.append("file", file);
   loadAnalysis(form, "Parsing your dropped file");
+});
+
+// ---- Chart hover tooltip -------------------------------------------------
+// One shared, fixed-position tooltip reused by every chart. Event delegation on
+// the document means it keeps working after charts are re-rendered.
+const chartTooltip = (() => {
+  let tip = null;
+  const ensure = () => {
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "chart-tooltip";
+      tip.setAttribute("role", "status");
+      document.body.appendChild(tip);
+    }
+    return tip;
+  };
+  const position = (clientX, clientY) => {
+    if (!tip) return;
+    const gap = 14;
+    const rect = tip.getBoundingClientRect();
+    let left = clientX + gap;
+    let top = clientY + gap;
+    if (left + rect.width > window.innerWidth - 8) left = clientX - rect.width - gap;
+    if (top + rect.height > window.innerHeight - 8) top = clientY - rect.height - gap;
+    tip.style.left = `${Math.max(8, left)}px`;
+    tip.style.top = `${Math.max(8, top)}px`;
+  };
+  const show = (hit, clientX, clientY) => {
+    const el = ensure();
+    const year = hit.getAttribute("data-year") || "";
+    const series = hit.getAttribute("data-series") || "";
+    const value = hit.getAttribute("data-value") || "";
+    el.textContent = "";
+    const yearEl = document.createElement("span");
+    yearEl.className = "chart-tooltip-year";
+    yearEl.textContent = year;
+    el.appendChild(yearEl);
+    if (series) {
+      const seriesEl = document.createElement("span");
+      seriesEl.className = "chart-tooltip-series";
+      seriesEl.textContent = series;
+      el.appendChild(seriesEl);
+    }
+    const valueEl = document.createElement("span");
+    valueEl.className = "chart-tooltip-value";
+    valueEl.textContent = value || "—";
+    el.appendChild(valueEl);
+    el.classList.add("is-visible");
+    position(clientX, clientY);
+  };
+  const hide = () => {
+    if (tip) tip.classList.remove("is-visible");
+  };
+  return { show, hide, position };
+})();
+
+document.addEventListener("mouseover", (event) => {
+  const hit = event.target.closest && event.target.closest(".chart-hit");
+  if (hit) chartTooltip.show(hit, event.clientX, event.clientY);
+});
+document.addEventListener("mousemove", (event) => {
+  if (event.target.closest && event.target.closest(".chart-hit")) {
+    chartTooltip.position(event.clientX, event.clientY);
+  }
+});
+document.addEventListener("mouseout", (event) => {
+  if (event.target.closest && event.target.closest(".chart-hit")) chartTooltip.hide();
+});
+// Touch / click support so the tooltip also works on phones and tablets.
+document.addEventListener("click", (event) => {
+  const hit = event.target.closest && event.target.closest(".chart-hit");
+  if (hit) chartTooltip.show(hit, event.clientX, event.clientY);
+  else chartTooltip.hide();
 });
 
 applyTheme();
