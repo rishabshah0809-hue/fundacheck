@@ -2225,11 +2225,22 @@ body[data-theme="light"] .theme-moon {
 
 .lens-stat-value {
   margin-top: 11px;
-  color: var(--positive);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: 26px;
   font-weight: 800;
   letter-spacing: -0.07em;
+}
+
+/* Color is reserved for meaning: green = good, goldenrod = neutral, terracotta = weak. */
+.lens-stat-value.is-positive {
+  color: var(--positive);
+}
+.lens-stat-value.is-caution {
+  color: var(--caution-dark);
+}
+.lens-stat-value.is-negative {
+  color: var(--negative);
 }
 
 .lens-stat-note {
@@ -2331,9 +2342,16 @@ body[data-theme="light"] .theme-moon {
   padding: 12px;
   border-radius: 12px;
   background: var(--surface-soft);
-  color: var(--positive);
+  color: var(--ink);
   font-size: 12px;
   font-weight: 800;
+}
+
+.readout-score.is-positive {
+  color: var(--positive);
+}
+.readout-score.is-caution {
+  color: var(--caution-dark);
 }
 
 .readout-score svg {

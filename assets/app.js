@@ -664,14 +664,21 @@ function renderRatios(data) {
     ${renderRatioTable(data)}`;
 }
 
+// Color is reserved for meaning: strong (>=66) reads positive, weak (<40) reads
+// negative, and the middle band reads caution. No score -> ink (no class).
+function semanticClass(score) {
+  if (score === null || score === undefined || Number.isNaN(Number(score))) return "";
+  return score >= 66 ? "is-positive" : score < 40 ? "is-negative" : "is-caution";
+}
+
 function renderLensStats(data) {
   const roce = metricBy(data, "Return on Capital Employed (ROCE) %");
   const growth = metricBy(data, "Sales Growth");
   return `<article class="card lens-top-strip">
     <div class="lens-stat"><div class="lens-stat-label">Sector position</div><div class="lens-stat-value">Rules</div><div class="lens-stat-note">Compared with ${escapeHTML(data.sector.name)} bands</div></div>
-    <div class="lens-stat"><div class="lens-stat-label">Fundamental score</div><div class="lens-stat-value">${number(data.score.total)}</div><div class="lens-stat-note">${escapeHTML(data.score.headline)}</div></div>
-    <div class="lens-stat"><div class="lens-stat-label">ROCE</div><div class="lens-stat-value">${escapeHTML(metricText(roce))}</div><div class="lens-stat-note">strong band ${escapeHTML(roce?.displayStrongAt || "—")}</div></div>
-    <div class="lens-stat"><div class="lens-stat-label">Revenue growth</div><div class="lens-stat-value">${escapeHTML(metricText(growth))}</div><div class="lens-stat-note">strong band ${escapeHTML(growth?.displayStrongAt || "—")}</div></div>
+    <div class="lens-stat"><div class="lens-stat-label">Fundamental score</div><div class="lens-stat-value ${semanticClass(data.score.total)}">${number(data.score.total)}</div><div class="lens-stat-note">${escapeHTML(data.score.headline)}</div></div>
+    <div class="lens-stat"><div class="lens-stat-label">ROCE</div><div class="lens-stat-value ${semanticClass(roce?.score)}">${escapeHTML(metricText(roce))}</div><div class="lens-stat-note">strong band ${escapeHTML(roce?.displayStrongAt || "—")}</div></div>
+    <div class="lens-stat"><div class="lens-stat-label">Revenue growth</div><div class="lens-stat-value ${semanticClass(growth?.score)}">${escapeHTML(metricText(growth))}</div><div class="lens-stat-note">strong band ${escapeHTML(growth?.displayStrongAt || "—")}</div></div>
   </article>`;
 }
 
@@ -693,7 +700,7 @@ function renderLens(data) {
     ${renderLensStats(data)}
     <div class="lens-middle-grid">
       <article class="card benchmark-chart-card"><div class="card-heading"><div><h2>Company vs sector benchmark</h2><p>Green is the company; lavender is the strong threshold.</p></div><span class="benchmark-chip">${icon("target")} Benchmark applied</span></div><div class="bar-legend"><span><i></i>Company</span><span><i class="benchmark"></i>Sector strong</span></div>${renderBenchmarkBars(data)}</article>
-      <article class="card readout-card"><div class="card-heading"><div><h2>Sector readout</h2><p>${escapeHTML(data.sector.notes)}</p></div></div><ul class="insight-list">${rows.slice(0, 3).map((row) => `<li><span class="list-icon positive">${icon(row.companyScore >= row.benchmarkScore ? "trend" : "warning")}</span><span><strong>${escapeHTML(row.label)}</strong><br>${escapeHTML(row.companyDisplay)} vs ${escapeHTML(row.benchmarkDisplay)} benchmark.</span></li>`).join("") || `<li><span class="list-icon">${icon("info")}</span><span>Choose a sector or upload a richer statement model to compare more ratios.</span></li>`}</ul><div class="readout-score">${icon("check")} ${data.score.total >= 66 ? "Above" : "Within"} sector benchmark bands</div></article>
+      <article class="card readout-card"><div class="card-heading"><div><h2>Sector readout</h2><p>${escapeHTML(data.sector.notes)}</p></div></div><ul class="insight-list">${rows.slice(0, 3).map((row) => `<li><span class="list-icon ${row.companyScore >= row.benchmarkScore ? "positive" : "warning"}">${icon(row.companyScore >= row.benchmarkScore ? "trend" : "warning")}</span><span><strong>${escapeHTML(row.label)}</strong><br>${escapeHTML(row.companyDisplay)} vs ${escapeHTML(row.benchmarkDisplay)} benchmark.</span></li>`).join("") || `<li><span class="list-icon">${icon("info")}</span><span>Choose a sector or upload a richer statement model to compare more ratios.</span></li>`}</ul><div class="readout-score ${data.score.total >= 66 ? "is-positive" : "is-caution"}">${icon(data.score.total >= 66 ? "check" : "info")} ${data.score.total >= 66 ? "Above" : "Within"} sector benchmark bands</div></article>
     </div>
     ${renderPeerTable(data)}`;
 }
