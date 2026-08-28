@@ -446,6 +446,63 @@ def _fmt_n(v: float) -> str:
     return f"{v:.1f}"
 
 
+# --------------------------------------------------------------------------
+# Grouping for the Ratio Analysis and Common Size tabs. Each row is classified
+# into a category so the frontend can render section headers instead of one
+# flat, mixed list. The source sheet's own section label (model.sections) is
+# used as a hint, with keyword matching as the fallback.
+# --------------------------------------------------------------------------
+RATIO_GROUP_ORDER = [
+    "Profitability", "Growth", "Efficiency", "Liquidity",
+    "Solvency & leverage", "Cash flow", "Valuation", "Other",
+]
+
+
+def ratio_group(name: str, section: str = "") -> str:
+    text = f"{section} {name}".lower()
+    # Checks are ordered so that more specific categories win. Efficiency is
+    # tested before solvency so "Debtor Turnover" is not caught by "debt".
+    if any(k in text for k in ("p/e", "pe ratio", "price to earning", "price/earning",
+                               "p/b", "price to book", "price/book", "ev/ebitda",
+                               "ev / ebitda", "dividend yield", "earnings yield",
+                               "market cap", "peg", "price to sales", "book value")):
+        return "Valuation"
+    if any(k in text for k in ("current ratio", "quick ratio", "cash ratio",
+                               "acid test", "liquidity")):
+        return "Liquidity"
+    if any(k in text for k in ("cfo", "cash flow", "free cash", "fcf", "ocf")):
+        return "Cash flow"
+    if any(k in text for k in ("turnover", "days", "cycle", "receivab", "debtor",
+                               "payable", "creditor", "inventory", "working capital",
+                               "efficiency")):
+        return "Efficiency"
+    if any(k in text for k in ("debt", "gearing", "interest coverage", "solvency",
+                               "leverage", "d/e", "equity ratio", "capital gearing")):
+        return "Solvency & leverage"
+    if "growth" in text:
+        return "Growth"
+    if any(k in text for k in ("roce", "roe", "roa", "return on", "margin",
+                               "profit", "ebitda", "yield")):
+        return "Profitability"
+    return "Other"
+
+
+COMMON_SIZE_GROUP_ORDER = [
+    "Income statement (% of revenue)", "Balance sheet (% of assets)",
+]
+
+
+def common_size_group(name: str, section: str = "") -> str:
+    text = f"{section} {name}".lower()
+    if any(k in text for k in ("balance", "asset", "liabilit", "equity", "borrow",
+                               "reserve", "capital", "payable", "receivab",
+                               "inventory", "provision", "investment", "goodwill",
+                               "net worth", "net block", "fixed asset", "share",
+                               "debt", "loan", "creditor", "debtor")):
+        return "Balance sheet (% of assets)"
+    return "Income statement (% of revenue)"
+
+
 def stmt_source(model, tab: str) -> list[tuple[str, list[float | None], bool]]:
     years = full_years(model)
     rows: list[tuple[str, list[float | None], bool]] = []

@@ -517,7 +517,8 @@ function sectionTabs(items, active, action) {
 }
 
 function insightCard(label, score, status, iconName) {
-  return `<article class="card insight-card"><div class="kpi-top"><span class="insight-label">${escapeHTML(label)}</span><span class="kpi-icon">${icon(iconName)}</span></div><div class="insight-value">${number(score)}</div><span class="insight-status">${escapeHTML(status)}</span></article>`;
+  const cls = semanticClass(score);
+  return `<article class="card insight-card"><div class="kpi-top"><span class="insight-label">${escapeHTML(label)}</span><span class="kpi-icon">${icon(iconName)}</span></div><div class="insight-value ${cls}">${number(score)}</div><span class="insight-status ${cls}">${escapeHTML(status)}</span></article>`;
 }
 
 function ratioInsights(data, metricNames = []) {
@@ -548,7 +549,7 @@ const DEFAULT_RATIO_ORDER = [
 
 function renderRatioTable(data, order = DEFAULT_RATIO_ORDER) {
   const rows = order.map((name) => metricBy(data, name)).filter(Boolean);
-  return `<article class="card ratio-table-card"><div class="table-toolbar"><h2>Key ratios</h2><span class="benchmark-chip">${icon("target")} Benchmark: ${escapeHTML(data.sector.name)}</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Ratio</th><th>Latest</th><th>3Y average</th><th>Sector strong</th><th>Score</th><th>Read</th></tr></thead><tbody>${rows.length ? rows.map((metric) => `<tr><td class="metric-name">${escapeHTML(metric.metric)}</td><td>${escapeHTML(metric.displayLatest)}</td><td>${metric.average3y != null ? escapeHTML(metric.metric.includes("%") || metric.metric.includes("Margin") ? pct(metric.average3y) : metric.metric.includes("Days") || metric.metric.includes("Cycle") ? `${number(metric.average3y, 0)} days` : ratio(metric.average3y)) : "—"}</td><td>${escapeHTML(metric.displayStrongAt)}</td><td><span class="score-chip">${number(metric.score)}</span></td><td class="${metric.score >= 66 ? "positive" : metric.score < 40 ? "negative" : "warning"}">${escapeHTML(metric.verdict)}</td></tr>`).join("") : `<tr><td colspan="6">No ratio rows are available in this workbook.</td></tr>`}</tbody></table></div></article>`;
+  return `<article class="card ratio-table-card"><div class="table-toolbar"><h2>Key ratios</h2><span class="benchmark-chip">${icon("target")} Benchmark: ${escapeHTML(data.sector.name)}</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Ratio</th><th>Latest</th><th>3Y average</th><th>Sector strong</th><th>Score</th><th>Read</th></tr></thead><tbody>${rows.length ? rows.map((metric) => `<tr><td class="metric-name">${escapeHTML(metric.metric)}</td><td>${escapeHTML(metric.displayLatest)}</td><td>${metric.average3y != null ? escapeHTML(metric.metric.includes("%") || metric.metric.includes("Margin") ? pct(metric.average3y) : metric.metric.includes("Days") || metric.metric.includes("Cycle") ? `${number(metric.average3y, 0)} days` : ratio(metric.average3y)) : "—"}</td><td>${escapeHTML(metric.displayStrongAt)}</td><td><span class="score-chip ${semanticClass(metric.score)}">${number(metric.score)}</span></td><td class="${metric.score >= 66 ? "positive" : metric.score < 40 ? "negative" : "warning"}">${escapeHTML(metric.verdict)}</td></tr>`).join("") : `<tr><td colspan="6">No ratio rows are available in this workbook.</td></tr>`}</tbody></table></div></article>`;
 }
 
 function ratioSeries(data, name) {
@@ -723,13 +724,20 @@ function renderStatementTable(data) {
   const query = state.statementQuery.trim().toLowerCase();
   const rows = statementRowsFor(data, tab).filter((row) => !query || row.name.toLowerCase().includes(query));
   const years = data.years || [];
+  const colCount = years.length + 2;
+  let lastGroup = null;
   return `<article class="card statement-table-card"><div class="table-toolbar"><h2>${escapeHTML(tab)}</h2><div class="statement-search">${icon("search")}<input id="statement-search" type="search" value="${escapeHTML(state.statementQuery)}" placeholder="Search metrics" aria-label="Search statement rows" /></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Particulars</th>${years.map((year) => `<th>${escapeHTML(year)}</th>`).join("")}<th>% change</th></tr></thead><tbody>${rows.length ? rows.map((row) => {
     const values = row.values || [];
     const previous = values.length > 1 ? values[values.length - 2] : null;
     const latest = values.length ? values[values.length - 1] : null;
     const change = previous != null && latest != null && Number(previous) !== 0 ? ((Number(latest) - Number(previous)) / Math.abs(Number(previous))) * 100 : null;
-    return `<tr class="${row.headline ? "highlight" : ""}"><td class="metric-name">${escapeHTML(row.name)}</td>${values.map((value) => `<td>${escapeHTML(formatStatementCell(row.name, value, tab))}</td>`).join("")}<td class="${change == null ? "muted" : change >= 0 ? "positive" : "negative"}">${change == null ? "—" : `${change >= 0 ? "↑" : "↓"} ${number(Math.abs(change), 1)}%`}</td></tr>`;
-  }).join("") : `<tr><td colspan="${years.length + 2}">No rows match this view.</td></tr>`}</tbody></table></div><div class="peer-note">All figures are presented from the uploaded file. Values are not enriched from an external market feed.</div></article>`;
+    let header = "";
+    if (row.group && row.group !== lastGroup) {
+      lastGroup = row.group;
+      header = `<tr class="group-header"><td colspan="${colCount}">${escapeHTML(row.group)}</td></tr>`;
+    }
+    return `${header}<tr class="${row.headline ? "highlight" : ""}"><td class="metric-name">${escapeHTML(row.name)}</td>${values.map((value) => `<td>${escapeHTML(formatStatementCell(row.name, value, tab))}</td>`).join("")}<td class="${change == null ? "muted" : change >= 0 ? "positive" : "negative"}">${change == null ? "—" : `${change >= 0 ? "↑" : "↓"} ${number(Math.abs(change), 1)}%`}</td></tr>`;
+  }).join("") : `<tr><td colspan="${colCount}">No rows match this view.</td></tr>`}</tbody></table></div><div class="peer-note">All figures are presented from the uploaded file. Values are not enriched from an external market feed.</div></article>`;
 }
 
 function renderStatementNotes(data) {

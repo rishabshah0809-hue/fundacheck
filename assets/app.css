@@ -1262,11 +1262,23 @@ body[data-theme="light"] .theme-moon {
   min-height: 26px;
   padding: 0 9px;
   border-radius: 7px;
-  background: var(--mint);
-  color: var(--positive);
+  background: var(--surface-muted);
+  color: var(--body);
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
+}
+.score-chip.is-positive {
+  background: var(--mint);
+  color: var(--positive);
+}
+.score-chip.is-caution {
+  background: var(--amber-bg);
+  color: var(--caution-dark);
+}
+.score-chip.is-negative {
+  background: var(--red-bg);
+  color: var(--negative);
 }
 
 .status-chip::before {
@@ -2030,11 +2042,20 @@ body[data-theme="light"] .theme-moon {
 
 .insight-card .insight-value {
   margin-top: 9px;
-  color: var(--positive);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: 28px;
   font-weight: 800;
   letter-spacing: -0.07em;
+}
+.insight-card .insight-value.is-positive {
+  color: var(--positive);
+}
+.insight-card .insight-value.is-caution {
+  color: var(--caution-dark);
+}
+.insight-card .insight-value.is-negative {
+  color: var(--negative);
 }
 
 .insight-card .insight-status {
@@ -2043,9 +2064,21 @@ body[data-theme="light"] .theme-moon {
   padding: 4px 8px;
   border-radius: 7px;
   background: var(--surface-soft);
-  color: var(--positive);
+  color: var(--body);
   font-size: 10px;
   font-weight: 700;
+}
+.insight-card .insight-status.is-positive {
+  background: var(--positive-bg);
+  color: var(--positive);
+}
+.insight-card .insight-status.is-caution {
+  background: var(--amber-bg);
+  color: var(--caution-dark);
+}
+.insight-card .insight-status.is-negative {
+  background: var(--red-bg);
+  color: var(--negative);
 }
 
 .ratio-middle-grid {
@@ -2177,7 +2210,23 @@ body[data-theme="light"] .theme-moon {
 
 .data-table tr.highlight td {
   background: var(--surface-soft);
-  color: var(--positive);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Section headers inside grouped statement tables (Ratio Analysis, Common Size). */
+.data-table tr.group-header td {
+  padding-top: 20px;
+  padding-bottom: 8px;
+  background: var(--surface);
+  color: var(--body-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
 }
 
 .data-table tr.highlight td:first-child {

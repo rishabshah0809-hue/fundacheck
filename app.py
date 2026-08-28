@@ -212,14 +212,33 @@ def _statement_rows(model: FinancialModel, tab: str) -> list[dict[str, Any]]:
             ]
             if any(value is not None for value in values):
                 rows.append((name, values, name.lower().startswith("total")))
-    return [
+
+    grouped = tab in {"Ratio Analysis", "Common Size"}
+
+    def _group_for(name: str) -> str:
+        section = model.sections.get(name, "")
+        if tab == "Ratio Analysis":
+            return S.ratio_group(str(name), section)
+        return S.common_size_group(str(name), section)
+
+    items = [
         {
             "name": name,
             "values": [_number(value) for value in values],
             "headline": bool(headline),
+            **({"group": _group_for(name)} if grouped else {}),
         }
         for name, values, headline in rows
     ]
+
+    if grouped:
+        order = (S.RATIO_GROUP_ORDER if tab == "Ratio Analysis"
+                 else S.COMMON_SIZE_GROUP_ORDER)
+        rank = {label: index for index, label in enumerate(order)}
+        # Stable sort keeps each group's rows in their original sheet order.
+        items.sort(key=lambda row: rank.get(row.get("group"), len(order)))
+
+    return items
 
 
 def _metric_json_for_sector(metric, latest: float | None, benchmark: float | None) -> dict[str, Any]:
