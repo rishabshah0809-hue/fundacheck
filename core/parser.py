@@ -137,6 +137,10 @@ def _to_float(value: Any) -> float | None:
 def _find_sheet(book: dict[str, pd.DataFrame], key: str) -> pd.DataFrame | None:
     wanted = SHEET_ALIASES[key]
     for name, frame in book.items():
+        # Divider tabs like "Financials>" or "Data>" carry the right name but no
+        # rows; skip them so a real sheet with the same prefix still matches.
+        if frame is None or frame.empty:
+            continue
         normalised = _norm(name)
         if any(normalised.startswith(alias) or alias in normalised for alias in wanted):
             return frame
@@ -399,15 +403,17 @@ def load_model(source: Any) -> FinancialModel:
     model = FinancialModel()
     title = ""
 
+    # A named HistoricalFS sheet is the ideal source, but many workbooks only
+    # carry the raw "Data Sheet" (rebuilt further down). So a missing or
+    # unparseable historical sheet is not fatal on its own.
     hist_sheet = _find_sheet(book, "historical")
-    if hist_sheet is None:
-        raise ParseError(
-            "No historical financials sheet found. Expected a sheet named "
-            "something like 'HistoricalFS'."
-        )
-    model.historical, sections, title = _parse_statement_sheet(hist_sheet)
-    model.sections.update(sections)
-    model.years = list(model.historical.columns)
+    if hist_sheet is not None:
+        try:
+            model.historical, sections, title = _parse_statement_sheet(hist_sheet)
+            model.sections.update(sections)
+            model.years = list(model.historical.columns)
+        except ParseError:
+            pass
 
     ratio_sheet = _find_sheet(book, "ratios")
     if ratio_sheet is not None:
@@ -442,6 +448,13 @@ def load_model(source: Any) -> FinancialModel:
                 model.rebuilt_from_data_sheet = True
                 for label in rebuilt.index:
                     model.sections.setdefault(label, "REBUILT FROM DATA SHEET")
+
+    if len(model.historical) < 4:
+        raise ParseError(
+            "Could not find recognizable financial statements. Expected either a "
+            "'HistoricalFS' sheet or a screener-style 'Data Sheet' with a "
+            "PROFIT & LOSS / BALANCE SHEET block."
+        )
 
     model.company = model.meta.get("company") or _company_from_title(title)
     return model
