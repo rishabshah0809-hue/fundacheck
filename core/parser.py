@@ -300,6 +300,190 @@ OPERATING_COST_KEYS = (
 )
 
 
+# --------------------------------------------------------------------------
+# Named 3-statement analyst models (Income Statement / Balance Sheet / Cash
+# Flow Statement sheets with descriptive labels and FY columns). These carry
+# no screener "Data Sheet", so we map their labels onto the canonical metric
+# names the rest of the app understands, keeping audited actuals only.
+# --------------------------------------------------------------------------
+# (sheet key, canonical metric, ordered "contains" patterns). First match per
+# canonical metric wins, so more specific rows should be listed first.
+NAMED_STATEMENT_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("historical", "Sales", ("revenue from oper", "net sales", "total revenue from")),
+    ("historical", "Other Income", ("other income",)),
+    ("historical", "Depreciation", ("depreciation, amort", "depreciation and amort",
+                                    "depreciation & amort", "depreciation")),
+    ("historical", "Interest", ("finance cost", "finance costs", "interest expense")),
+    ("historical", "Earnings Before Tax", ("profit before tax", "pbt (",)),
+    ("historical", "Tax", ("total tax expense", "tax expense", "current tax")),
+    ("historical", "Net Profit", ("pat attributable to owners",
+                                  "profit after tax (total)", "profit after tax",
+                                  "net profit")),
+    ("historical", "COGS", ("total cost of goods sold", "cost of goods sold",
+                            "cost of sales")),
+    ("historical", "Gross Profit", ("gross profit",)),
+    ("historical", "EBITDA", ("ebitda",)),
+    ("historical", "EBIT", ("ebit (opm)", "operating profit", "ebit")),
+    ("balance", "Equity Share Capital", ("equity share capital", "share capital")),
+    ("balance", "Reserves", ("other equity", "reserves")),
+    ("balance", "Borrowings", ("gross debt", "total borrowings", "total debt")),
+    ("balance", "Receivables", ("trade receivab", "receivables")),
+    ("balance", "Inventory", ("inventor",)),
+    ("balance", "Cash & Bank", ("cash & cash", "cash and cash",
+                                "cash & bank", "cash and bank")),
+    ("balance", "Investments", ("investments in jv", "investments",)),
+    ("balance", "Payables", ("trade payables", "trade payable")),
+    ("balance", "Net Block", ("net fixed assets", "net block", "property, plant")),
+    ("balance", "Total Assets", ("total assets",)),
+    ("cashflow", "Cash from Operating Activity", ("net cash from operating",
+                                                  "cash from operating",
+                                                  "cash flow from operating")),
+    ("cashflow", "Cash from Investing Activity", ("net cash used in investing",
+                                                  "net cash from investing",
+                                                  "cash from investing")),
+    ("cashflow", "Cash from Financing Activity", ("net cash from financing",
+                                                  "net cash used in financing",
+                                                  "cash from financing")),
+    ("cashflow", "Net Cash Flow", ("net increase", "net decrease",
+                                   "net change in cash")),
+)
+
+CASHFLOW_SHEET_ALIASES = ("cashflow", "cashflowstatement", "cashflowstmt")
+
+# Derived/assumption rows to skip so they cannot shadow a real statement line.
+# Word-bounded so "ratio" does not match inside "opeRATIOns", etc.
+_EXCLUDE_ROW_RE = re.compile(
+    r"\b(days|margin|growth|coverage|ratio|roic|roe|roce)\b|per\s*share|book\s*value"
+    r"|as\s*%\s*of|%\s*of|%\s*\(on",
+)
+
+
+def _period_token(cell: Any) -> tuple[str, bool] | None:
+    """('FY24', is_estimate) for a period header cell, else None.
+
+    Recognises FY23, FY23A, FY23E, 2023, 2023A and datetime year-ends.
+    The trailing A/E marks audited actuals vs estimates/projections.
+    """
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return None
+    if isinstance(cell, pd.Timestamp) or hasattr(cell, "year"):
+        return (_year_label(cell), False)
+    s = re.sub(r"\s+", "", str(cell)).upper()
+    m = re.fullmatch(r"FY(\d{2,4})([AEP])?", s) or re.fullmatch(r"(\d{4})([AEP])?", s)
+    if not m:
+        return None
+    digits, suffix = m.group(1), m.group(2)
+    return (f"FY{digits[-2:]}", suffix in ("E", "P"))
+
+
+def _named_sheet(book: dict[str, pd.DataFrame], aliases: tuple[str, ...]):
+    for name, frame in book.items():
+        if frame is None or frame.empty:
+            continue
+        if any(alias in _norm(name) for alias in aliases):
+            return frame
+    return None
+
+
+def _parse_named_statements(book: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str]:
+    """Build the canonical metric-by-year frame from named statement sheets.
+
+    Returns (frame, company_title). Frame is empty when the workbook does not
+    look like a named 3-statement model.
+    """
+    # Prefer an explicit Income Statement over the generic historical aliases,
+    # which over-match tabs like "Revenue Model".
+    income = _named_sheet(book, ("incomestatement", "profitandloss", "profitloss",
+                                 "statementofprofit"))
+    sheets = {
+        "historical": income if income is not None else _find_sheet(book, "historical"),
+        "balance": _named_sheet(book, ("balancesheet", "balance")),
+        "cashflow": _named_sheet(book, CASHFLOW_SHEET_ALIASES),
+    }
+    if sheets["historical"] is None and sheets["balance"] is None:
+        return pd.DataFrame(), ""
+
+    def _columns(frame: pd.DataFrame) -> dict[int, str]:
+        """Column-index -> FY label, for audited-actual columns only."""
+        best: dict[int, tuple[str, bool]] = {}
+        best_count = 0
+        for _, row in frame.iterrows():
+            found: dict[int, tuple[str, bool]] = {}
+            for col, cell in enumerate(row.tolist()):
+                token = _period_token(cell)
+                if token is not None:
+                    found[col] = token
+            if len(found) > best_count:
+                best, best_count = found, len(found)
+        if not best:
+            return {}
+        actuals = {c: lbl for c, (lbl, est) in best.items() if not est}
+        # If nothing is explicitly marked actual, fall back to every period.
+        chosen = actuals or {c: lbl for c, (lbl, _est) in best.items()}
+        return dict(sorted(chosen.items()))
+
+    columns_by_sheet = {
+        key: (_columns(frame) if frame is not None else {})
+        for key, frame in sheets.items()
+    }
+
+    records: dict[str, dict[str, float]] = {}
+    for sheet_key, canonical, patterns in NAMED_STATEMENT_RULES:
+        frame = sheets.get(sheet_key)
+        cols = columns_by_sheet.get(sheet_key) or {}
+        if frame is None or not cols or canonical in records:
+            continue
+        for _, row in frame.iterrows():
+            cells = row.tolist()
+            label_cell = next(
+                (c for c in cells
+                 if c is not None and not (isinstance(c, float) and pd.isna(c))
+                 and isinstance(c, str) and c.strip()),
+                None,
+            )
+            if label_cell is None:
+                continue
+            label = _clean_label(label_cell).lower()
+            # Skip derived/assumption rows ("Inventory days", "Gross margin %",
+            # "as % of revenue"...) so they cannot shadow a real statement line.
+            if _EXCLUDE_ROW_RE.search(label):
+                continue
+            # "ebit" is a substring of "ebitda"; keep EBIT off the EBITDA row.
+            if canonical == "EBIT" and "ebitda" in label:
+                continue
+            if any(label.startswith(p) or p in label for p in patterns):
+                values = {
+                    year: _to_float(cells[col])
+                    for col, year in cols.items()
+                    if col < len(cells) and _to_float(cells[col]) is not None
+                }
+                # A matched section header carries no values; keep scanning for
+                # the real data row rather than giving up on this metric.
+                if values:
+                    records[canonical] = values
+                    break
+
+    if len(records) < 4:
+        return pd.DataFrame(), ""
+
+    all_years: list[str] = []
+    for cols in columns_by_sheet.values():
+        for year in cols.values():
+            if year not in all_years:
+                all_years.append(year)
+    frame = pd.DataFrame(
+        {year: {m: v.get(year) for m, v in records.items()} for year in all_years}
+    )
+
+    title = ""
+    is_sheet = sheets["historical"] if sheets["historical"] is not None else sheets["balance"]
+    if is_sheet is not None and not is_sheet.empty:
+        first = is_sheet.iloc[0].tolist()
+        head = next((c for c in first if isinstance(c, str) and c.strip()), "")
+        title = _clean_label(head.split("|")[0]) if head else ""
+    return frame, title
+
+
 def _parse_data_sheet_statements(raw: pd.DataFrame) -> pd.DataFrame:
     """
     Read the Data Sheet's raw blocks into one metric-by-year frame.
@@ -449,11 +633,23 @@ def load_model(source: Any) -> FinancialModel:
                 for label in rebuilt.index:
                     model.sections.setdefault(label, "REBUILT FROM DATA SHEET")
 
+    # Last resort: a named 3-statement analyst model (Income Statement /
+    # Balance Sheet / Cash Flow sheets) with no screener Data Sheet.
+    if len(model.historical) < 4:
+        rebuilt, named_title = _parse_named_statements(book)
+        if not rebuilt.empty:
+            model.historical = rebuilt
+            model.years = list(rebuilt.columns)
+            model.rebuilt_from_data_sheet = True
+            for label in rebuilt.index:
+                model.sections.setdefault(label, "REBUILT FROM STATEMENTS")
+            title = title or named_title
+
     if len(model.historical) < 4:
         raise ParseError(
-            "Could not find recognizable financial statements. Expected either a "
-            "'HistoricalFS' sheet or a screener-style 'Data Sheet' with a "
-            "PROFIT & LOSS / BALANCE SHEET block."
+            "Could not find recognizable financial statements. Expected a "
+            "'HistoricalFS' sheet, a screener-style 'Data Sheet', or named "
+            "Income Statement / Balance Sheet / Cash Flow sheets."
         )
 
     model.company = model.meta.get("company") or _company_from_title(title)
