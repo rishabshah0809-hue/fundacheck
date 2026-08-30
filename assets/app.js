@@ -429,10 +429,14 @@ function lineChart(seriesList, options = {}) {
     min *= 100;
     max *= 100;
   }
+  // Always extend the scale below zero when the data actually goes negative,
+  // even if the caller did not set allowNegative — otherwise dips (e.g. a
+  // negative-margin year) get clipped at the baseline and disappear.
+  const showNegative = allowNegative || min < 0;
   const spread = Math.max(max - min, 1);
-  min = allowNegative ? min - spread * 0.12 : Math.max(0, min - spread * 0.12);
+  min = showNegative ? min - spread * 0.12 : Math.max(0, min - spread * 0.12);
   max += spread * 0.12;
-  if (kind === "percent" && !allowNegative) min = Math.max(0, min);
+  if (kind === "percent" && !showNegative) min = Math.max(0, min);
   const innerWidth = width - pad.left - pad.right;
   const innerHeight = height - pad.top - pad.bottom;
   const x = (index) => pad.left + (Math.max(years.length - 1, 1) ? index / Math.max(years.length - 1, 1) : 0.5) * innerWidth;
@@ -469,9 +473,14 @@ function lineChart(seriesList, options = {}) {
     }).join("");
     return `${area}<path class="chart-line ${seriesIndex ? "secondary" : ""}" d="${path}"/>${dots}`;
   }).join("");
+  // Emphasised zero line when the chart spans both sides of zero, so negative
+  // stretches read clearly against the positive ones.
+  const zeroLine = min < 0 && max > 0
+    ? `<line class="chart-zero-line" x1="${pad.left}" x2="${width - pad.right}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}"/>`
+    : "";
   return `<svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(options.label || "Financial trend chart")}">
     <defs><linearGradient id="chart-area-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c9903a" stop-opacity="0.3"/><stop offset="100%" stop-color="#c9903a" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<line class="chart-axis-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/>${lines}${xLabels}${hitAreas.join("")}</svg>`;
+    ${grid}${zeroLine}<line class="chart-axis-line" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}"/>${lines}${xLabels}${hitAreas.join("")}</svg>`;
 }
 
 function renderChartCard(title, subtitle, chart, legend) {
